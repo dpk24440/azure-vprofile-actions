@@ -1,0 +1,54 @@
+trigger: none  # Equivalent to `workflow_dispatch`
+
+variables:
+  - group: vprofilevariables
+
+  
+stages:
+- stage: Testing
+  displayName: Run Tests and Code Quality Checks
+  jobs:
+  - job: JavaTestAndScan
+    displayName: Java Test and SonarQube Scan
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Checkout@1
+      displayName: 'Code checkout'
+
+    - task: JavaToolInstaller@0
+      inputs:
+        versionSpec: '11'
+        jdkArchitecture: 'x64'
+        jdkSourceOption: 'PreInstalled'
+      displayName: 'Set Java 11'
+
+    - script: mvn test
+      displayName: 'Run Maven Tests'
+
+    - script: mvn checkstyle:checkstyle
+      displayName: 'Run Checkstyle'
+
+    - task: SonarQubePrepare@5
+      inputs:
+        SonarQube: 'YourServiceConnectionName'  # Replace with your SonarQube service connection name
+        scannerMode: 'CLI'
+        configMode: 'manual'
+        cliProjectKey: '$(SONAR_PROJECT_KEY)'       # Set this in your pipeline variables or variable group
+        cliSources: 'src/'
+        extraProperties: |
+          sonar.host.url=$(SONAR_URL)
+          sonar.login=$(SONAR_TOKEN)
+          sonar.organization=$(SONAR_ORGANIZATION)
+          sonar.jacoco.reportsPath=target/jacoco.exec
+          sonar.junit.reportsPath=target/surefire-reports/
+          sonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
+          sonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/
+
+    - task: SonarQubeAnalyze@5
+      displayName: 'Run SonarQube Analysis'
+
+    - task: SonarQubePublish@5
+      inputs:
+        pollingTimeoutSec: '300'
+      displayName: 'Check SonarQube Quality Gate'
