@@ -1,25 +1,26 @@
-trigger: none  # Equivalent to `workflow_dispatch`
+trigger: none  # manual trigger like workflow_dispatch
 
 variables:
-  - group: vprofilevariables
+- group: vprofilevariables  # includes AWS_REGION, ECR_REPOSITORY, EKS_CLUSTER, REGISTRY, SONAR_TOKEN, etc.
+  # Make sure secrets like SONAR_TOKEN, AWS credentials are marked as secret in the variable group
 
-  
 stages:
 - stage: Testing
-  displayName: Run Tests and Code Quality Checks
+  displayName: Maven Tests and Code Quality
   jobs:
-  - job: JavaTestAndScan
-    displayName: Java Test and SonarQube Scan
+  - job: JavaTests
+    displayName: Run Unit Tests and SonarQube
     pool:
       vmImage: 'ubuntu-latest'
+    variables:
+      - group: vprofilevariables
     steps:
-    - task: Checkout@1
-      displayName: 'Code checkout'
+    - checkout: self
 
     - task: JavaToolInstaller@0
       inputs:
         versionSpec: '11'
-        jdkArchitecture: 'x64'
+        jdkArchitectureOption: 'x64'
         jdkSourceOption: 'PreInstalled'
       displayName: 'Set Java 11'
 
@@ -29,26 +30,93 @@ stages:
     - script: mvn checkstyle:checkstyle
       displayName: 'Run Checkstyle'
 
-    - task: SonarQubePrepare@5
-      inputs:
-        SonarQube: 'YourServiceConnectionName'  # Replace with your SonarQube service connection name
-        scannerMode: 'CLI'
-        configMode: 'manual'
-        cliProjectKey: '$(SONAR_PROJECT_KEY)'       # Set this in your pipeline variables or variable group
-        cliSources: 'src/'
-        extraProperties: |
-          sonar.host.url=$(SONAR_URL)
-          sonar.login=$(SONAR_TOKEN)
-          sonar.organization=$(SONAR_ORGANIZATION)
-          sonar.jacoco.reportsPath=target/jacoco.exec
-          sonar.junit.reportsPath=target/surefire-reports/
-          sonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
-          sonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/
+    - script: |
+        wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+        unzip sonar-scanner-cli-5.0.1.3006-linux.zip
+        export PATH=$(pwd)/sonar-scanner-5.0.1.3006-linux/bin:$PATH
 
-    - task: SonarQubeAnalyze@5
-      displayName: 'Run SonarQube Analysis'
+        sonar-scanner -X \
+          -Dsonar.host.url=$(SONAR_URL) \
+          -Dsonar.login=$(SONAR_TOKEN) \
+          -Dsonar.organization=$(SONAR_ORGANIZATION) \
+          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
+          -Dsonar.sources=src/ \
+          -Dsonar.jacoco.reportsPath=target/jacoco.exec \
+          -Dsonar.junit.reportsPath=target/surefire-reports/ \
+          -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml \
+          -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/
+      displayName: 'Run SonarQube Scanner (CLI)'
 
-    - task: SonarQubePublish@5
+    - script: |
+        echo "Waiting for Quality Gate..."
+        sleep 10
+        analysisId=$(curl -s -u $(SONAR_TOKEN): $(SONAR_URL)/api/ce/component?component=$(SONAR_PROJECT_KEY) | jq -r '.current.id')
+        echo "Analysis ID: $analysisId"
+
+        for i in {1..30}; do
+          status=$(curl -s -u $(SONAR_TOKEN): $(SONAR_URL)/api/qualitygates/project_status?analysisId=$analysisId | jq -r '.projectStatus.status')
+          echo "Quality Gate status: $status"
+          if [[ "$status" != "IN_PROGRESS" && "$status" != "PENDING" ]]; then
+            break
+          fi
+          sleep 10
+        done
+
+        if [[ "$status" != "OK" ]]; then
+          echo "❌ Quality Gate Failed"
+          exit 1
+        else
+          echo "✅ Quality Gate Passed"
+        fi
+      displayName: 'Wait for Quality Gate Result'
+
+- stage: BuildAndDeploy
+  displayName: Build Docker Image and Deploy to EKS
+  dependsOn: Testing
+  jobs:
+  - job: BuildPushDeploy
+    displayName: Docker Build, Push to ECR & Helm Deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+
+    - task: AWSCLI@1
       inputs:
-        pollingTimeoutSec: '300'
-      displayName: 'Check SonarQube Quality Gate'
+        awsCredentials: 'eks-aws-connection'
+        regionName: 'ap-northeast-1'
+        awsCommand: 'configure'
+
+    - script: |
+        aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
+      displayName: 'Login to Amazon ECR'
+
+    - task: Docker@2
+      inputs:
+        command: 'buildAndPush'
+        repository: '$(ECR_REPOSITORY)'
+        dockerfile: '**/Dockerfile'
+        containerRegistry: ''
+        tags: |
+          latest
+          $(Build.BuildId)
+      displayName: 'Build and Push Docker Image to ECR'
+
+    - script: |
+        aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
+      displayName: 'Configure kubectl for EKS'
+
+    - script: |
+        kubectl create secret docker-registry regcred \
+          --docker-server=$(REGISTRY) \
+          --docker-username=AWS \
+          --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
+          --docker-email=your-email@example.com || echo "Secret already exists"
+      displayName: 'Create Kubernetes Secret for ECR'
+
+    - script: |
+        helm upgrade --install vprofile-stack helm/vprofilecharts \
+          --set appimage=$(REGISTRY)/$(ECR_REPOSITORY) \
+          --set apptag=$(Build.BuildId) \
+          --namespace default
+      displayName: 'Deploy Helm Chart to EKS'
