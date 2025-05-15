@@ -4,7 +4,7 @@ trigger:
       - main
 
 variables:
-- group: vprofilevariables  # Make sure all required variables are stored here
+- group: vprofilevariables  # Ensure this group contains all needed variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, REGISTRY, ECR_REPOSITORY, EKS_CLUSTER, SONAR_PROJECT_KEY, SONAR_ORGANIZATION, SONAR_URL, SONAR_TOKEN)
 
 stages:
 # ------------------------------
@@ -53,8 +53,8 @@ stages:
     - checkout: self
     - script: |
         echo "Running unit tests..."
-        # ./gradlew test or mvn test
-      displayName: 'Run Tests'
+        # TODO: replace with actual test command like ./gradlew test or mvn test
+      displayName: 'Run Unit Tests'
 
 # ------------------------------
 # 3. Build, Push to ECR, Deploy to EKS
@@ -70,16 +70,19 @@ stages:
     steps:
     - checkout: self
 
+    # Configure AWS CLI
     - script: |
         aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
         aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
-        aws configure set default.region $(AWS_REGION)
+        aws configure set region $(AWS_REGION)
       displayName: 'Configure AWS CLI'
 
+    # Login to Amazon ECR
     - script: |
         aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
       displayName: 'Login to Amazon ECR'
 
+    # Build, tag, and push Docker images
     - script: |
         docker build -t $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId) .
         docker tag $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId) $(REGISTRY)/$(ECR_REPOSITORY):latest
@@ -87,18 +90,23 @@ stages:
         docker push $(REGISTRY)/$(ECR_REPOSITORY):latest
       displayName: 'Build and Push Docker Image to ECR'
 
+    # Update kubeconfig for EKS cluster
     - script: |
         aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
       displayName: 'Configure kubectl for EKS'
 
+    # Create Kubernetes docker-registry secret (if not exists)
     - script: |
+        # Get ECR password dynamically here so kubectl gets it correctly
+        ECR_PASSWORD=$(aws ecr get-login-password --region $(AWS_REGION))
         kubectl create secret docker-registry regcred \
           --docker-server=$(REGISTRY) \
           --docker-username=AWS \
-          --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
-          --docker-email=your-email@example.com || echo "Secret already exists"
+          --docker-password=$ECR_PASSWORD \
+          --docker-email=your-email@example.com || echo "Secret 'regcred' already exists"
       displayName: 'Create Kubernetes Secret for ECR'
 
+    # Deploy Helm chart with image and tag overrides
     - script: |
         helm upgrade --install vprofile-stack helm/vprofilecharts \
           --set appimage=$(REGISTRY)/$(ECR_REPOSITORY) \
