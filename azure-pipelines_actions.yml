@@ -58,12 +58,12 @@ stages:
         echo "Running SonarQube Analysis..."
         sonar-scanner \
           -Dsonar.projectKey="$(SONAR_PROJECT_KEY)" \
+          -Dsonar.organization="$(SONAR_ORGANIZATION)" \  # <<< ADD THIS LINE
           -Dsonar.sources=. \
           -Dsonar.java.binaries=target/classes \
           -Dsonar.host.url="$(SONAR_URL)" \
           -Dsonar.login="$(SONAR_TOKEN)"
       displayName: 'Run SonarQube Scanner (Manual)'
-
 
 
 # ------------------------------
