@@ -27,8 +27,8 @@ stages:
         jdkSourceOption: 'PreInstalled'
 
     - script: |
-        wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-5.0.1.3006.zip
-        unzip sonar-scanner-5.0.1.3006.zip
+        curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
+        unzip sonar-scanner.zip
         export PATH=$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH
         sonar-scanner \
           -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
