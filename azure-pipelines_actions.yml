@@ -10,11 +10,28 @@ stages:
 # ------------------------------
 # 1. Code Quality - SonarQube
 # ------------------------------
+- stage: Build
+  displayName: Build Java Project
+  jobs:
+  - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+
+    - task: JavaToolInstaller@1
+      inputs:
+        versionSpec: '17'
+        jdkArchitectureOption: 'x64'
+        jdkSourceOption: 'PreInstalled'
+
+    - script: mvn clean compile
+      displayName: 'Build with Maven'
 - stage: CodeAnalysis
   displayName: SonarQube Analysis
+  dependsOn: Build
   jobs:
   - job: SonarQubeScan
-    displayName: Run SonarQube Scanner
     pool:
       vmImage: 'ubuntu-latest'
     steps:
@@ -34,9 +51,11 @@ stages:
           -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
           -Dsonar.organization=$(SONAR_ORGANIZATION) \
           -Dsonar.sources=. \
+          -Dsonar.java.binaries=target/classes \
           -Dsonar.host.url=$(SONAR_URL) \
           -Dsonar.login=$(SONAR_TOKEN)
       displayName: 'Run SonarQube Scanner'
+
 
 
 # ------------------------------
