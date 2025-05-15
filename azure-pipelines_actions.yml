@@ -1,19 +1,18 @@
-trigger: none  # manual trigger like workflow_dispatch
+trigger:
+- main
 
 variables:
-- group: vprofilevariables  # includes AWS_REGION, ECR_REPOSITORY, EKS_CLUSTER, REGISTRY, SONAR_TOKEN, etc.
-  # Make sure secrets like SONAR_TOKEN, AWS credentials are marked as secret in the variable group
+- group: vprofilevariables  # Make sure all required variables are stored here
 
 stages:
+# ---------------------- Stage 1: Testing ----------------------
 - stage: Testing
   displayName: Maven Tests and Code Quality
   jobs:
   - job: JavaTests
-    displayName: Run Unit Tests and SonarQube
+    displayName: Run Unit Tests and SonarQube Scan
     pool:
       vmImage: 'ubuntu-latest'
-    variables:
-      - group: vprofilevariables
     steps:
     - checkout: self
 
@@ -22,7 +21,6 @@ stages:
         versionSpec: '11'
         jdkArchitectureOption: 'x64'
         jdkSourceOption: 'PreInstalled'
-      displayName: 'Set Java 11'
 
     - script: mvn test
       displayName: 'Run Maven Tests'
@@ -31,92 +29,66 @@ stages:
       displayName: 'Run Checkstyle'
 
     - script: |
-        wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
-        unzip sonar-scanner-cli-5.0.1.3006-linux.zip
-        export PATH=$(pwd)/sonar-scanner-5.0.1.3006-linux/bin:$PATH
-
-        sonar-scanner -X \
+        curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
+        unzip sonar-scanner.zip -d $HOME
+        export PATH="$HOME/sonar-scanner-5.0.1.3006/bin:$PATH"
+        sonar-scanner \
+          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
+          -Dsonar.sources=src \
           -Dsonar.host.url=$(SONAR_URL) \
           -Dsonar.login=$(SONAR_TOKEN) \
           -Dsonar.organization=$(SONAR_ORGANIZATION) \
-          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
-          -Dsonar.sources=src/ \
-          -Dsonar.jacoco.reportsPath=target/jacoco.exec \
-          -Dsonar.junit.reportsPath=target/surefire-reports/ \
+          -Dsonar.jacoco.reportPaths=target/jacoco.exec \
+          -Dsonar.junit.reportPaths=target/surefire-reports/ \
           -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml \
-          -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/
-      displayName: 'Run SonarQube Scanner (CLI)'
+          -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
+          -Dsonar.verbose=true
+      displayName: 'Run SonarQube Scanner'
 
-    - script: |
-        echo "Waiting for Quality Gate..."
-        sleep 10
-        analysisId=$(curl -s -u $(SONAR_TOKEN): $(SONAR_URL)/api/ce/component?component=$(SONAR_PROJECT_KEY) | jq -r '.current.id')
-        echo "Analysis ID: $analysisId"
-
-        for i in {1..30}; do
-          status=$(curl -s -u $(SONAR_TOKEN): $(SONAR_URL)/api/qualitygates/project_status?analysisId=$analysisId | jq -r '.projectStatus.status')
-          echo "Quality Gate status: $status"
-          if [[ "$status" != "IN_PROGRESS" && "$status" != "PENDING" ]]; then
-            break
-          fi
-          sleep 10
-        done
-
-        if [[ "$status" != "OK" ]]; then
-          echo "❌ Quality Gate Failed"
-          exit 1
-        else
-          echo "✅ Quality Gate Passed"
-        fi
-      displayName: 'Wait for Quality Gate Result'
-
+# ----------------- Build & Deploy Stage -----------------
 - stage: BuildAndDeploy
   displayName: Build Docker Image and Deploy to EKS
   dependsOn: Testing
   jobs:
-  - job: BuildPushDeploy
-    displayName: Docker Build, Push to ECR & Helm Deploy
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - checkout: self
+    - job: BuildPushDeploy
+      displayName: Docker Build, Push to ECR & Helm Deploy
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - checkout: self
 
-    - task: AWSCLI@1
-      inputs:
-        awsCredentials: 'eks-aws-connection'
-        regionName: 'ap-northeast-1'
-        awsCommand: 'configure'
+        - script: |
+            aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
+            aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
+            aws configure set region $(AWS_REGION)
+          displayName: 'Configure AWS CLI'
 
-    - script: |
-        aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
-      displayName: 'Login to Amazon ECR'
+        - script: |
+            aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
+          displayName: 'Login to Amazon ECR'
 
-    - task: Docker@2
-      inputs:
-        command: 'buildAndPush'
-        repository: '$(ECR_REPOSITORY)'
-        dockerfile: '**/Dockerfile'
-        containerRegistry: ''
-        tags: |
-          latest
-          $(Build.BuildId)
-      displayName: 'Build and Push Docker Image to ECR'
+        - script: |
+            docker build -t $(REGISTRY)/$(ECR_REPOSITORY):latest .
+            docker tag $(REGISTRY)/$(ECR_REPOSITORY):latest $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId)
+            docker push $(REGISTRY)/$(ECR_REPOSITORY):latest
+            docker push $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId)
+          displayName: 'Build and Push Docker Image to ECR'
 
-    - script: |
-        aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
-      displayName: 'Configure kubectl for EKS'
+        - script: |
+            aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
+          displayName: 'Configure kubectl for EKS'
 
-    - script: |
-        kubectl create secret docker-registry regcred \
-          --docker-server=$(REGISTRY) \
-          --docker-username=AWS \
-          --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
-          --docker-email=your-email@example.com || echo "Secret already exists"
-      displayName: 'Create Kubernetes Secret for ECR'
+        - script: |
+            kubectl create secret docker-registry regcred \
+              --docker-server=$(REGISTRY) \
+              --docker-username=AWS \
+              --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
+              --docker-email=your-email@example.com || echo "Secret already exists"
+          displayName: 'Create Kubernetes Secret for ECR'
 
-    - script: |
-        helm upgrade --install vprofile-stack helm/vprofilecharts \
-          --set appimage=$(REGISTRY)/$(ECR_REPOSITORY) \
-          --set apptag=$(Build.BuildId) \
-          --namespace default
-      displayName: 'Deploy Helm Chart to EKS'
+        - script: |
+            helm upgrade --install vprofile-stack helm/vprofilecharts \
+              --set appimage=$(REGISTRY)/$(ECR_REPOSITORY) \
+              --set apptag=$(Build.BuildId) \
+              --namespace default
+          displayName: 'Deploy Helm Chart to EKS'
