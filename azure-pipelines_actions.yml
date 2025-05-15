@@ -8,12 +8,13 @@ variables:
 
 stages:
 # ------------------------------
-# 1. Code Quality - SonarQube
+# 1. Build Stage
 # ------------------------------
 - stage: Build
   displayName: Build Java Project
   jobs:
   - job: Build
+    displayName: Compile Java Code
     pool:
       vmImage: 'ubuntu-latest'
     steps:
@@ -27,11 +28,16 @@ stages:
 
     - script: mvn clean compile
       displayName: 'Build with Maven'
+
+# ------------------------------
+# 2. SonarQube Analysis Stage
+# ------------------------------
 - stage: CodeAnalysis
-  displayName: SonarQube Analysis
+  displayName: SonarQube Code Analysis
   dependsOn: Build
   jobs:
   - job: SonarQubeScan
+    displayName: Run SonarQube Scanner
     pool:
       vmImage: 'ubuntu-latest'
     steps:
@@ -44,17 +50,19 @@ stages:
         jdkSourceOption: 'PreInstalled'
 
     - script: |
+        echo "Downloading SonarQube Scanner..."
         curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
-        unzip sonar-scanner.zip
-        export PATH=$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH
+        unzip -q sonar-scanner.zip
+        export PATH="$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH"
+
+        echo "Running SonarQube Analysis..."
         sonar-scanner \
-          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
-          -Dsonar.organization=$(SONAR_ORGANIZATION) \
+          -Dsonar.projectKey="$(SONAR_PROJECT_KEY)" \
           -Dsonar.sources=. \
           -Dsonar.java.binaries=target/classes \
-          -Dsonar.host.url=$(SONAR_URL) \
-          -Dsonar.login=$(SONAR_TOKEN)
-      displayName: 'Run SonarQube Scanner'
+          -Dsonar.host.url="$(SONAR_URL)" \
+          -Dsonar.login="$(SONAR_TOKEN)"
+      displayName: 'Run SonarQube Scanner (Manual)'
 
 
 
