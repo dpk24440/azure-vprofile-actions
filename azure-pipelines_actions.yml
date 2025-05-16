@@ -57,26 +57,33 @@ stages:
         options: '-DskipTests'
 
     - script: |
+        echo "Setting up environment..."
+        sudo apt-get update && sudo apt-get install -y unzip curl
+
         echo "Downloading SonarScanner CLI..."
         curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
         unzip -q sonar-scanner.zip
         export PATH="$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH"
+
+        echo "Compiling Java code..."
+        mvn clean compile -DskipTests
 
         echo "Running SonarCloud Analysis..."
         sonar-scanner \
           -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
           -Dsonar.organization=$(SONAR_ORGANIZATION) \
           -Dsonar.sources=. \
+          -Dsonar.inclusions=**/*.java,**/*.py,**/*.js \
           -Dsonar.java.binaries=target/classes \
           -Dsonar.host.url=$(SONAR_URL) \
-          -Dsonar.login=$(SONAR_TOKEN)
+          -Dsonar.login=$(SONAR_TOKEN) \
+          -Dsonar.verbose=true
       displayName: 'Run SonarCloud Scanner'
       env:
         SONAR_PROJECT_KEY: 'vprofile-action240_vprofile24'
         SONAR_ORGANIZATION: 'vprofile-action24'
         SONAR_URL: 'https://sonarcloud.io'
         SONAR_TOKEN: $(SONAR_TOKEN)
-
 # ------------------------------
 # 2. Testing Stage (Optional)
 # ------------------------------
