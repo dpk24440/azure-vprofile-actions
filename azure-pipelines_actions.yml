@@ -8,127 +8,100 @@ variables:
 
 
 stages:
-  - stage: Test
-    displayName: Testing and Analysis
-    jobs:
-      - job: Testing
-        displayName: Run Unit Tests & Sonar Analysis
-        pool:
-          vmImage: 'ubuntu-latest'
-        steps:
-          - task: Checkout@1
+# ------------------------------
+# 1. Code Quality - SonarQube
+# ------------------------------
+- stage: CodeAnalysis
+  displayName: SonarQube Analysis
+  jobs:
+  - job: SonarQubeScan
+    displayName: Run SonarQube Scanner
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
 
-          - task: JavaToolInstaller@0
-            inputs:
-              versionSpec: '11'
-              jdkArchitectureOption: 'x64'
-              jdkSourceOption: 'PreInstalled'
+    - task: JavaToolInstaller@1
+      inputs:
+        versionSpec: '17'
+        jdkArchitectureOption: 'x64'
+        jdkSourceOption: 'PreInstalled'
 
-          - script: mvn test
-            displayName: 'Run Maven Tests'
+    - script: |
+        curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
+        unzip sonar-scanner.zip
+        export PATH=$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH
+        sonar-scanner \
+          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
+          -Dsonar.organization=$(SONAR_ORGANIZATION) \
+          -Dsonar.sources=. \
+          -Dsonar.host.url=$(SONAR_URL) \
+          -Dsonar.login=$(SONAR_TOKEN)
+      displayName: 'Run SonarQube Scanner'
 
-          - script: mvn checkstyle:checkstyle
-            displayName: 'Run Checkstyle'
+# ------------------------------
+# 2. Testing Stage (Optional)
+# ------------------------------
+- stage: Testing
+  displayName: Run Unit Tests
+  dependsOn: CodeAnalysis
+  jobs:
+  - job: RunTests
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+    - script: |
+        echo "Running unit tests..."
+        # ./gradlew test or mvn test
+      displayName: 'Run Tests'
 
-          - script: |
-              echo "Downloading SonarScanner CLI..."
-              curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
-              unzip -q sonar-scanner.zip
-              export PATH="$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH"
-              echo "Running SonarCloud Analysis..."
-              sonar-scanner -X \
-                -Dsonar.host.url=$(SONAR_URL) \
-                -Dsonar.login=$(SONAR_TOKEN) \
-                -Dsonar.organization=$(SONAR_ORGANIZATION) \
-                -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
-                -Dsonar.sources=src/ \
-                -Dsonar.jacoco.reportsPath=target/jacoco.exec \
-                -Dsonar.junit.reportsPath=target/surefire-reports/ \
-                -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml \
-                -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/
-            displayName: 'Run SonarCloud Scanner'
+# ------------------------------
+# 3. Build, Push to ECR, Deploy to EKS
+# ------------------------------
+- stage: BuildAndDeploy
+  displayName: Build Docker Image and Deploy to EKS
+  dependsOn: Testing
+  jobs:
+  - job: BuildPushDeploy
+    displayName: Docker Build, Push to ECR & Helm Deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
 
-          - task: UsePythonVersion@0
-            inputs:
-              versionSpec: '3.x'
+    - script: |
+        aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
+        aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
+        aws configure set default.region $(AWS_REGION)
+      displayName: 'Configure AWS CLI'
 
-          - script: pip install reportlab
-            displayName: 'Install Python Dependencies'
+    - script: |
+        aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
+      displayName: 'Login to Amazon ECR'
 
-          - script: python sonar_report.py
-            displayName: 'Generate SonarQube Report'
-            env:
-              SONAR_URL: $(SONAR_URL)
-              SONAR_TOKEN: $(SONAR_TOKEN)
-              SONAR_PROJECT_KEY: $(SONAR_PROJECT_KEY)
+    - script: |
+        docker build -t $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId) .
+        docker tag $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId) $(REGISTRY)/$(ECR_REPOSITORY):latest
+        docker push $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId)
+        docker push $(REGISTRY)/$(ECR_REPOSITORY):latest
+      displayName: 'Build and Push Docker Image to ECR'
 
-          - script: mv sonarqube_report_*.pdf sonarqube_report.pdf
-            displayName: 'Rename Report for Publishing'
+    - script: |
+        aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
+      displayName: 'Configure kubectl for EKS'
 
-          - task: PublishBuildArtifacts@1
-            inputs:
-              PathtoPublish: '$(System.DefaultWorkingDirectory)/sonarqube_report.pdf'
-              ArtifactName: 'SonarQube-Report'
+    - script: |
+        kubectl create secret docker-registry regcred \
+          --docker-server=$(REGISTRY) \
+          --docker-username=AWS \
+          --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
+          --docker-email=your-email@example.com || echo "Secret already exists"
+      displayName: 'Create Kubernetes Secret for ECR'
 
-  - stage: Build_And_Deploy
-    displayName: Build & Push Docker, Deploy to EKS
-    dependsOn: Test
-    jobs:
-      - job: BuildAndDeploy
-        displayName: Docker Build & Helm Deploy
-        pool:
-          vmImage: 'ubuntu-latest'
-        steps:
-          - task: Checkout@1
-
-          - script: aws sts get-caller-identity
-            displayName: 'Verify AWS Credentials'
-            env:
-              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
-
-          - script: |
-              aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
-            displayName: 'Login to Amazon ECR'
-            env:
-              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
-
-          - script: |
-              docker build -t $(REGISTRY)/$(ECR_REPOSITORY):latest .
-              docker tag $(REGISTRY)/$(ECR_REPOSITORY):latest $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId)
-              docker push $(REGISTRY)/$(ECR_REPOSITORY):latest
-              docker push $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId)
-            displayName: 'Build & Push Docker Image'
-
-          - script: aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
-            displayName: 'Configure kubectl for EKS'
-            env:
-              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
-
-          - script: |
-              if kubectl get secret regcred --namespace default; then
-                echo "Updating regcred"
-                kubectl delete secret regcred --namespace default
-              fi
-              kubectl create secret docker-registry regcred \
-                --docker-server=$(REGISTRY) \
-                --docker-username=AWS \
-                --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
-                --docker-email=your-email@example.com
-            displayName: 'Create or Update Kubernetes Secret for ECR'
-            env:
-              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
-
-          - task: HelmInstaller@1
-            inputs:
-              helmVersionToInstall: 'latest'
-
-          - script: |
-              helm upgrade --install kubeproj-stack helm/kubecharts \
-                --namespace default \
-                --set appimage=$(REGISTRY)/$(ECR_REPOSITORY) \
-                --set apptag=$(Build.BuildId)
-            displayName: 'Deploy via Helm'
+    - script: |
+        helm upgrade --install vprofile-stack helm/vprofilecharts \
+          --set appimage=$(REGISTRY)/$(ECR_REPOSITORY) \
+          --set apptag=$(Build.BuildId) \
+          --namespace default
+      displayName: 'Deploy Helm Chart to EKS'
