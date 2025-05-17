@@ -4,7 +4,8 @@ trigger:
       - main
 
 variables:
-- group: vprofilevariables  # Ensure this group contains all needed variables
+- group: vprofilevariables
+
 
 stages:
   - stage: Test
@@ -61,9 +62,12 @@ stages:
               SONAR_TOKEN: $(SONAR_TOKEN)
               SONAR_PROJECT_KEY: $(SONAR_PROJECT_KEY)
 
+          - script: mv sonarqube_report_*.pdf sonarqube_report.pdf
+            displayName: 'Rename Report for Publishing'
+
           - task: PublishBuildArtifacts@1
             inputs:
-              PathtoPublish: '$(System.DefaultWorkingDirectory)/sonarqube_report_*.pdf'
+              PathtoPublish: '$(System.DefaultWorkingDirectory)/sonarqube_report.pdf'
               ArtifactName: 'SonarQube-Report'
 
   - stage: Build_And_Deploy
@@ -77,17 +81,18 @@ stages:
         steps:
           - task: Checkout@1
 
-          - script: |
-              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
-              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
-              aws sts get-caller-identity
+          - script: aws sts get-caller-identity
             displayName: 'Verify AWS Credentials'
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
           - script: |
-              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
-              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
               aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
             displayName: 'Login to Amazon ECR'
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
           - script: |
               docker build -t $(REGISTRY)/$(ECR_REPOSITORY):latest .
@@ -96,15 +101,13 @@ stages:
               docker push $(REGISTRY)/$(ECR_REPOSITORY):$(Build.BuildId)
             displayName: 'Build & Push Docker Image'
 
-          - script: |
-              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
-              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
-              aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
+          - script: aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
             displayName: 'Configure kubectl for EKS'
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
           - script: |
-              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
-              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
               if kubectl get secret regcred --namespace default; then
                 echo "Updating regcred"
                 kubectl delete secret regcred --namespace default
@@ -115,6 +118,9 @@ stages:
                 --docker-password=$(aws ecr get-login-password --region $(AWS_REGION)) \
                 --docker-email=your-email@example.com
             displayName: 'Create or Update Kubernetes Secret for ECR'
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
           - task: HelmInstaller@1
             inputs:
