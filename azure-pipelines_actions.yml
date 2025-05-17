@@ -4,7 +4,7 @@ trigger:
       - main
 
 variables:
-- group: vprofilevariables  # Ensure this group contains all needed variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, REGISTRY, ECR_REPOSITORY, EKS_CLUSTER, SONAR_PROJECT_KEY, SONAR_ORGANIZATION, SONAR_URL, SONAR_TOKEN)
+- group: vprofilevariables  # Ensure this group contains all needed variables
 
 stages:
   - stage: Test
@@ -75,14 +75,17 @@ stages:
         pool:
           vmImage: 'ubuntu-latest'
         steps:
-          - task: AWSCLI@1
-            inputs:
-              awsCredentials: 'eks-aws-connection'
-              regionName: '$(AWS_REGION)'
-
           - task: Checkout@1
 
           - script: |
+              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
+              aws sts get-caller-identity
+            displayName: 'Verify AWS Credentials'
+
+          - script: |
+              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
               aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
             displayName: 'Login to Amazon ECR'
 
@@ -94,10 +97,14 @@ stages:
             displayName: 'Build & Push Docker Image'
 
           - script: |
+              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
               aws eks update-kubeconfig --region $(AWS_REGION) --name $(EKS_CLUSTER)
-            displayName: 'Configure kubectl'
+            displayName: 'Configure kubectl for EKS'
 
           - script: |
+              export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+              export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
               if kubectl get secret regcred --namespace default; then
                 echo "Updating regcred"
                 kubectl delete secret regcred --namespace default
