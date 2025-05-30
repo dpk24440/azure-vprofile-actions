@@ -52,6 +52,10 @@ stages:
 
     - script: mvn checkstyle:checkstyle
       displayName: 'Run Checkstyle'
+    
+    - script: |
+        ./gradlew sonarqube
+      displayName: 'Run Code Analysis'
 
     - task: SonarCloudAnalyze@1
       displayName: 'Analyze Code'
