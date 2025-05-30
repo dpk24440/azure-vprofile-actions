@@ -56,10 +56,11 @@ stages:
     - task: SonarCloudAnalyze@1
       displayName: 'Analyze Code'
 
-    - task: SonarCloudPublish@1
+    - task: SonarCloudPublish@2
+      displayName: 'Publish Quality Gate Result'
       inputs:
         pollingTimeoutSec: '300'
-      displayName: 'Publish SonarQube Results'
+
       
 # ------------------------------
 # 2. Testing Stage (Optional)
