@@ -20,6 +20,9 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - checkout: self
+      fetchDepth: 0
+      persistCredentials: true
+
 
     - task: JavaToolInstaller@1
       inputs:
