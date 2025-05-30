@@ -65,9 +65,9 @@ stages:
           -Dsonar.login=$(SONAR_TOKEN)
         publishJUnitResults: true
         testResultsFiles: '**/surefire-reports/TEST-*.xml'
-        javaHomeOption: 'JDKVersion'
+        javaHomeOption: 'Path'
+        jdkDirectory: '/usr/lib/jvm/java-17-openjdk-amd64'
         mavenVersionOption: 'Default'
-        jdkVersionOption: '1.11'
         mavenAuthenticateFeed: false
 
     - task: SonarCloudAnalyze@1
