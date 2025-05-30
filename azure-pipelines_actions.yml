@@ -32,10 +32,9 @@ stages:
         SonarCloud: 'sonar-connection'
         organization: 'vprofile-action240'
         scannerMode: 'CLI'
-        cliProjectKey: 'vprofile-action240_vprofile24'   # <--- add this line
         configMode: 'manual'
-        projectKey: 'vprofile-action240_vprofile24'      # This can remain
-        projectName: 'vprofile'
+        cliProjectKey: 'vprofile-action240_vprofile24'
+        cliSources: '.'
         extraProperties: |
           sonar.sources=src/main/java
           sonar.tests=src/test/java
