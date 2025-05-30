@@ -36,12 +36,13 @@ stages:
         projectKey: 'vprofile-action240_vprofile24'
         projectName: 'vprofile'
         extraProperties: |
-          sonar.sources=src/
-          sonar.java.binaries=target/test-classes/
-          sonar.junit.reportsPath=target/surefire-reports/
-          sonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
+          sonar.java.binaries=target      
       displayName: 'Run SonarQube Scanner'
    
+
+    - script: mvn clean verify sonar:sonar
+      displayName: 'Run Sonar Maven Analysis'
+      
     - script: mvn test
       displayName: 'Run Maven Tests'
 
