@@ -27,16 +27,13 @@ stages:
         jdkArchitectureOption: 'x64'
         jdkSourceOption: 'PreInstalled'
 
-    - script: |
-        curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
-        unzip sonar-scanner.zip
-        export PATH=$(pwd)/sonar-scanner-5.0.1.3006/bin:$PATH
-        sonar-scanner \
-          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
-          -Dsonar.organization=$(SONAR_ORGANIZATION) \
-          -Dsonar.sources=. \
-          -Dsonar.host.url=$(SONAR_URL) \
-          -Dsonar.login=$(SONAR_TOKEN)
+    - task: SonarCloudPrepare@1
+      inputs:
+        SonarCloud: 'sonar-connection'
+        organization: 'vprofile-action240'
+        scannerMode: 'MSBuild'
+        projectKey: 'vprofile-action240_vprofile24'
+        projectName: 'vprofile'
       displayName: 'Run SonarQube Scanner'
 
 # ------------------------------
