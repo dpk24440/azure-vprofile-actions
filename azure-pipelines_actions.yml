@@ -31,11 +31,10 @@ stages:
       inputs:
         SonarCloud: 'sonar-connection'
         organization: 'vprofile-action240'
-        scannerMode: 'CLI'
-        configMode: 'manual'        
-        projectKey: 'vprofile-action240_vprofile24'
-        projectName: 'vprofile'
+        scannerMode: 'Other'
         extraProperties: |
+          sonar.projectKey=vprofile-action240_vprofile24
+          sonar.projectName=vprofile
           sonar.java.binaries=target      
       displayName: 'Run SonarQube Scanner'
    
