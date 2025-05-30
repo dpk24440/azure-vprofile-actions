@@ -32,12 +32,14 @@ stages:
         SonarCloud: 'sonar-connection'
         organization: 'vprofile-action240'
         scannerMode: 'CLI'
+        cliProjectKey: 'vprofile-action240_vprofile24'   # <--- add this line
         configMode: 'manual'
-        projectKey: 'vprofile-action240_vprofile24'
+        projectKey: 'vprofile-action240_vprofile24'      # This can remain
         projectName: 'vprofile'
         extraProperties: |
           sonar.java.binaries=target
       displayName: 'Prepare SonarCloud analysis'
+
    
 
     - script: mvn clean verify sonar:sonar
