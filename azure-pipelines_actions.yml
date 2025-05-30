@@ -31,9 +31,15 @@ stages:
       inputs:
         SonarCloud: 'sonar-connection'
         organization: 'vprofile-action240'
-        scannerMode: 'MSBuild'
+        scannerMode: 'CLI'
+        configMode: 'manual'        
         projectKey: 'vprofile-action240_vprofile24'
         projectName: 'vprofile'
+        extraProperties: |
+          sonar.sources=src/
+          sonar.java.binaries=target/test-classes/
+          sonar.junit.reportsPath=target/surefire-reports/
+          sonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
       displayName: 'Run SonarQube Scanner'
    
     - script: mvn test
