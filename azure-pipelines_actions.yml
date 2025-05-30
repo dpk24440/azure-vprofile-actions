@@ -37,6 +37,8 @@ stages:
         projectKey: 'vprofile-action240_vprofile24'      # This can remain
         projectName: 'vprofile'
         extraProperties: |
+          sonar.sources=src/main/java
+          sonar.tests=src/test/java
           sonar.java.binaries=target
       displayName: 'Prepare SonarCloud analysis'
 
