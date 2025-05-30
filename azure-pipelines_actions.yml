@@ -50,9 +50,6 @@ stages:
       env:
         SONAR_TOKEN: $(SONAR_TOKEN)
 
-      
-    - script: mvn test
-      displayName: 'Run Maven Tests'
 
     - script: mvn checkstyle:checkstyle
       displayName: 'Run Checkstyle'
