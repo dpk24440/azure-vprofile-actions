@@ -46,6 +46,9 @@ stages:
 
     - script: mvn clean verify sonar:sonar
       displayName: 'Run Sonar Maven Analysis'
+      env:
+        SONAR_TOKEN: $(SONAR_TOKEN)
+
       
     - script: mvn test
       displayName: 'Run Maven Tests'
@@ -53,10 +56,7 @@ stages:
     - script: mvn checkstyle:checkstyle
       displayName: 'Run Checkstyle'
     
-    - script: |
-        ./gradlew sonarqube
-      displayName: 'Run Code Analysis'
-
+    
     - task: SonarCloudAnalyze@1
       displayName: 'Analyze Code'
 
