@@ -35,7 +35,21 @@ stages:
         projectKey: 'vprofile-action240_vprofile24'
         projectName: 'vprofile'
       displayName: 'Run SonarQube Scanner'
+   
+    - script: mvn test
+      displayName: 'Run Maven Tests'
 
+    - script: mvn checkstyle:checkstyle
+      displayName: 'Run Checkstyle'
+
+    - task: SonarCloudAnalyze@1
+      displayName: 'Analyze Code'
+
+    - task: SonarCloudPublish@1
+      inputs:
+        pollingTimeoutSec: '300'
+      displayName: 'Publish SonarQube Results'
+      
 # ------------------------------
 # 2. Testing Stage (Optional)
 # ------------------------------
